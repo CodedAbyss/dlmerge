@@ -26,8 +26,8 @@ You can link statically by doing the following:
 ## Notes
 - When linking as a dll, the inner libraries are loaded and freed automatically via `DllMain`.
 - When linking as a lib (like in the previous examples) inner libraries must be loaded and freed by the functions `dlmload` and `dlmclose`.
-- By defining `LIB` the c file with compile `dlmload` and `dlmclose`
-- By defining `DLL` the c file with compile `DllMain`
+- By defining `LIB` the c file will compile `dlmload` and `dlmclose`
+- By defining `DLL` the c file will compile `DllMain`
 - When outputting an object file, `dlmload`, `dlmclose`, and `DllMain` are defined
 
 An example of how to use a static linked merged library:
