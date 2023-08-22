@@ -62,7 +62,7 @@ int main(int argc, char **argv) {
     }
     
     fprintf(dll,
-        "#include \"memod.h\"\n"
+        "#include \"memmod.h\"\n"
         "#define EXPORT extern __declspec(dllexport)\n");
     for(int i = 0; i < count; i++) {
         fprintf(dll, "static void (*addrs%d[%d])(void);\n", i + 1, MemoryGetExportCount(mods[i]));
@@ -112,6 +112,6 @@ int main(int argc, char **argv) {
         "    return TRUE;\n"
         "}", count, count);
     fclose(dll);
-    snprintf(tmp, 512, "clang %s/../tmp.c %s/../memod.c -shared -o %s", argv[0], argv[0], argv[oloc + 1]); 
+    snprintf(tmp, 512, "clang %s/../tmp.c %s/../memmod.c -shared -o %s", argv[0], argv[0], argv[oloc + 1]); 
     system(tmp);
 }
