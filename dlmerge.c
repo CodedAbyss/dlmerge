@@ -47,7 +47,33 @@ int main(int argc, char **argv) {
     void **bufs = malloc(sizeof(void*) * count);
     HMEMORYMODULE *mods = malloc(sizeof(HMEMORYMODULE) * count);
    
-    snprintf(tmp, 512, "%s/../tmp.c", argv[0]);
+    char *outfile = argv[oloc + 1];
+    char *ext = outfile;
+    int mode = 0;
+    for(int i = 0; outfile[i]; i++) {
+        if(outfile[i] == '.')
+            ext = outfile + i + 1;
+    }
+
+    if(!strcmp(ext, "c")) {
+        mode = 1;
+    } else if(!strcmp(ext, "o")) {
+        mode = 2;
+    } else if(!strcmp(ext, "dll")) {
+        mode = 3;
+    } else if(!strcmp(ext, "lib")) {
+        mode = 4;
+    }
+
+    if(!mode) {
+        printf("file type .%s not supported\n", ext);
+        return 0;
+    }
+
+    if(mode == 1)
+        snprintf(tmp, 512, "%s", outfile);
+    else
+        snprintf(tmp, 512, "%s/../tmp.c", argv[0]);
     FILE *dll = fopen(tmp, "wb");
 
     for(int i = 0; i < count; i++) {
@@ -60,10 +86,18 @@ int main(int argc, char **argv) {
         fclose(fp);
         mods[i] = MemoryLoadLibrary(bufs[i], sizes[i]);
     }
+
+    fprintf(dll, "/* --------------------------------------- memmod.c --------------------------------------- */\n\n");
+    snprintf(tmp, 512, "%s/../memmod.c", argv[0]);
+    FILE *memmod = fopen(tmp, "rb");
+    int len;
+    while((len = fread(tmp, 1, 512, memmod))) {
+        fwrite(tmp, 1, len, dll);
+    }
+    fclose(memmod);
     
-    fprintf(dll,
-        "#include \"memmod.h\"\n"
-        "#define EXPORT extern __declspec(dllexport)\n");
+    fprintf(dll, "\n/* --------------------------------------- %.*s.c --------------------------------------- */\n\n", (int)(ext - outfile - 1), outfile);
+    fprintf(dll, "#define EXPORT extern __declspec(dllexport)\n");
     for(int i = 0; i < count; i++) {
         fprintf(dll, "static void (*addrs%d[%d])(void);\n", i + 1, MemoryGetExportCount(mods[i]));
     }
@@ -91,27 +125,55 @@ int main(int argc, char **argv) {
     fprintf(dll, "const size_t sizes[%d] = ", count);
     write_list(dll, count, "sizeof(dll%d)");
     fprintf(dll, "const unsigned char *dlls[%d] = ", count);
-    write_list(dll, count, "dll%d");
-    fprintf(dll, "BOOL WINAPI DllMain(HINSTANCE handle, DWORD reason, LPVOID unused) {\n"
+    write_list(dll, count, "dll%d"); 
+    fprintf(dll, 
+        "static void _dlmload() {\n"
+        "    for(int i = 0; i < %d; i++) {\n"
+        "        mods[i] = MemoryLoadLibrary(dlls[i], sizes[i]);\n"
+        "        int count = MemoryGetExportCount(mods[i]);\n"
+        "        for(int n = 0; n < count; n++) {\n"
+        "            ((void**)addrs[i])[n] = MemoryGetExportAddr(mods[i], n);\n"
+        "        }\n"
+        "    }\n"
+        "}\n"
+        "static void _dlmclose() {\n"
+        "    for(int i = 0; i < %d; i++) {\n"
+        "        MemoryFreeLibrary(mods[i]);\n"
+        "    }\n"
+        "}\n", count, count);
+    fprintf(dll, 
+        "#ifdef DLL\n"
+        "BOOL WINAPI DllMain(HINSTANCE handle, DWORD reason, LPVOID unused) {\n"
         "    switch(reason) {\n"
         "    case DLL_PROCESS_ATTACH:\n"
-        "        for(int i = 0; i < %d; i++) {\n"
-        "            mods[i] = MemoryLoadLibrary(dlls[i], sizes[i]);\n"
-        "            int count = MemoryGetExportCount(mods[i]);\n"
-        "            for(int n = 0; n < count; n++) {\n"
-        "                ((void**)addrs[i])[n] = MemoryGetExportAddr(mods[i], n);\n"
-        "            }\n"
-        "        }\n"
+        "        _dlmload();\n"
         "        break;\n"
         "    case DLL_PROCESS_DETACH:\n"
-        "        for(int i = 0; i < %d; i++) {\n"
-        "            MemoryFreeLibrary(mods[i]);\n"
-        "        }\n"
+        "        _dlmclose();\n"
         "        break;\n"
         "    }\n"
         "    return TRUE;\n"
-        "}", count, count);
+        "}\n"
+        "#endif\n");
+    fprintf(dll, 
+        "#ifdef LIB\n"
+        "EXPORT void dlmload() {\n"
+        "    _dlmload();\n"
+        "}\n"
+        "EXPORT void dlmclose() {\n"
+        "    _dlmclose();\n"
+        "}\n"
+        "#endif\n");
     fclose(dll);
-    snprintf(tmp, 512, "clang %s/../tmp.c %s/../memmod.c -shared -o %s", argv[0], argv[0], argv[oloc + 1]); 
+    if(mode == 1) goto end;
+    switch(mode) {
+        case 2: snprintf(tmp, 512, "clang -c %s/../tmp.c -DLIB -DDLL -o %s", argv[0], outfile); break;
+        case 3: snprintf(tmp, 512, "clang %s/../tmp.c -DDLL -shared -o %s", argv[0], outfile); break;
+        case 4: snprintf(tmp, 512, "clang -c %s/../tmp.c -DLIB -o %s/../tmp.o && zig lib /out:%s %s/../tmp.o", argv[0], argv[0], outfile, argv[0]); break;
+        default: return 0;
+    }
     system(tmp);
+end:
+    printf("%s created\n", outfile);
+    return 0;
 }
